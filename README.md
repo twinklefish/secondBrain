@@ -31,14 +31,26 @@ Settings → Daily Notes:
 ### 4. Add Your Groq API Key
 
 1. Get a free API key from: https://console.groq.com/keys
-2. Open `Scripts/.env` in a text editor
-3. Replace `YOUR_GROQ_API_KEY_HERE` with your actual key:
+2. Create `Scripts/groq-api-key.txt` with this content:
    ```
+   # Groq API Key Configuration
    GROQ_API_KEY=gsk_your_actual_key_here
    ```
-4. Save the file
+3. Save the file
 
-### 5. Enable Zero Data Retention (Privacy)
+**Note:** This file is git-ignored for security.
+
+### 5. Create Your Dashboard
+
+Your personal dashboard will show Dataview query results with your data.
+
+1. Copy `Templates/Dashboard-Template.md`
+2. Paste contents into a new file: `Dashboard.md` (in vault root)
+3. The dashboard will auto-populate with your data as you use the system
+
+**Important:** `Dashboard.md` is git-ignored because it will contain your personal data. The template is version-controlled for reference.
+
+### 6. Enable Zero Data Retention (Privacy)
 
 Visit: https://console.groq.com/settings/data-controls
 Enable "Zero Data Retention"

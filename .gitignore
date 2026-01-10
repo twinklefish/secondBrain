@@ -1,6 +1,10 @@
 # API Keys and sensitive data
 Scripts/.env
 Scripts/groq-api-key
+Scripts/groq-api-key.txt
+
+# Dashboard with personal data (use Dashboard-Template.md for version control)
+Dashboard.md
 
 # Obsidian workspace settings (personal layout)
 .obsidian/workspace.json
