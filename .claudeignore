@@ -1,0 +1,33 @@
+# Claude Code Ignore File
+# Prevents Claude from reading sensitive or generated content
+
+# API Keys and Environment Variables
+Scripts/groq-api-key.txt
+Scripts/groq-api-key
+.env
+
+# Personal Generated Content (contains PII)
+0-Daily/**
+Notifications/**
+Inbox-Log/**
+People/**
+Projects/**
+Ideas/**
+Admin/**
+
+# Obsidian Internal Files
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/plugins/**
+.obsidian/themes/**
+
+# Backup Files
+*.bak
+*~
+.DS_Store
+
+# Allow reading documentation and scripts
+!CLAUDE.md
+!*.md
+!Scripts/*.js
+!Templates/*.md

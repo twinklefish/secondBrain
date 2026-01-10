@@ -1,0 +1,32 @@
+# API Keys and sensitive data
+Scripts/.env
+Scripts/groq-api-key
+
+# Obsidian workspace settings (personal layout)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# Generated content (optional - you may want to sync these via Obsidian Sync instead)
+# Uncomment if you don't want to commit personal data to git:
+# Notifications/
+# Inbox-Log/
+# 0-Daily/
+# People/
+# Projects/
+# Ideas/
+# Admin/
+
+# macOS
+.DS_Store
+
+# Backup files
+*.bak
+*~
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Linux
+.directory
+Scripts/groq-api-key.txt
