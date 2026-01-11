@@ -104,17 +104,20 @@ async function generateWeeklyReview(tp) {
 
     new Notice("Generating weekly review...");
 
-    // Query this week's inbox log
+    // Query this week's inbox log (by source note date)
     const inboxLog = await queryWeeklyInboxLog(dv);
 
     // Query all active/waiting/blocked projects
     const projects = await queryAllActiveProjects(dv);
 
+    // Cross-reference with category folders for accurate counts
+    const categoryCounts = await getCategoryCountsFromFolders(dv);
+
     // Build context
-    const context = buildWeeklyContext(inboxLog, projects);
+    const context = buildWeeklyContext(inboxLog, projects, categoryCounts);
 
     // Generate review
-    const review = await generateReview(context, inboxLog.length);
+    const review = await generateReview(context, inboxLog.length, categoryCounts);
 
     // Create notification
     await createReviewNotification(tp, review);
@@ -125,17 +128,28 @@ async function generateWeeklyReview(tp) {
 async function queryWeeklyInboxLog(dv) {
     const sevenDaysAgo = moment().subtract(7, 'days').format("YYYY-MM-DD");
 
-    return dv.pages(`"${INBOX_LOG_FOLDER}"`)
-        .where(p => p.created && p.created >= sevenDaysAgo)
-        .limit(100)
-        .map(p => ({
-            original_text: p.original_text,
-            filed_to: p.filed_to,
-            destination_name: p.destination_name,
-            status: p.status,
-            confidence: p.confidence
-        }))
-        .array();
+    // Query by source_note date (when entry was captured), not log creation date
+    const allLogs = dv.pages(`"${INBOX_LOG_FOLDER}"`).array();
+
+    const weeklyLogs = allLogs.filter(p => {
+        if (!p.source_note) return false;
+
+        // Extract date from source_note (format: [[2026-01-09]])
+        const match = p.source_note.toString().match(/\[\[(\d{4}-\d{2}-\d{2})\]\]/);
+        if (!match) return false;
+
+        const sourceDate = match[1];
+        return sourceDate >= sevenDaysAgo;
+    });
+
+    return weeklyLogs.map(p => ({
+        original_text: p.original_text,
+        filed_to: p.filed_to,
+        destination_name: p.destination_name,
+        status: p.status,
+        confidence: p.confidence,
+        source_note: p.source_note
+    }));
 }
 
 async function queryAllActiveProjects(dv) {
@@ -150,7 +164,56 @@ async function queryAllActiveProjects(dv) {
         .array();
 }
 
-function buildWeeklyContext(inboxLog, projects) {
+async function getCategoryCountsFromFolders(dv) {
+    const sevenDaysAgo = moment().subtract(7, 'days');
+
+    const categories = {
+        people: 0,
+        projects: 0,
+        ideas: 0,
+        admin: 0,
+        needs_review: 0
+    };
+
+    // Count files created this week in each folder
+    const folders = {
+        people: '"People"',
+        projects: '"Projects"',
+        ideas: '"Ideas"',
+        admin: '"Admin"'
+    };
+
+    for (const [category, folder] of Object.entries(folders)) {
+        const allItems = dv.pages(folder).array();
+        console.log(`${category}: Total files = ${allItems.length}`);
+
+        const items = allItems.filter(p => {
+            if (!p.created) {
+                console.log(`  ${p.file.name}: No created field`);
+                return false;
+            }
+
+            // Dataview returns date objects, need to use moment for comparison
+            const createdDate = moment(p.created.toString());
+            const isRecent = createdDate.isSameOrAfter(sevenDaysAgo, 'day');
+            console.log(`  ${p.file.name}: created=${p.created} isRecent=${isRecent}`);
+            return isRecent;
+        });
+
+        categories[category] = items.length;
+        console.log(`${category}: Counted ${items.length} items from last 7 days`);
+    }
+
+    // Count needs_review from inbox logs
+    const needsReview = dv.pages(`"${INBOX_LOG_FOLDER}"`)
+        .where(p => p.status === "needs_review")
+        .array();
+    categories.needs_review = needsReview.length;
+
+    return categories;
+}
+
+function buildWeeklyContext(inboxLog, projects, categoryCounts) {
     let context = "=== ITEMS CAPTURED THIS WEEK ===\n\n";
 
     inboxLog.forEach((item, i) => {
@@ -170,22 +233,19 @@ function buildWeeklyContext(inboxLog, projects) {
         context += `   Next: ${p.next_action}\n\n`;
     });
 
-    // Count by category
-    const categoryCounts = {};
-    inboxLog.forEach(item => {
-        const cat = item.filed_to || "Unknown";
-        categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
-    });
-
-    context += "\n=== CAPTURE SUMMARY ===\n";
-    for (const [cat, count] of Object.entries(categoryCounts)) {
-        context += `${cat}: ${count}\n`;
+    context += "\n=== CAPTURE SUMMARY (from category folders) ===\n";
+    context += `people: ${categoryCounts.people}\n`;
+    context += `projects: ${categoryCounts.projects}\n`;
+    context += `ideas: ${categoryCounts.ideas}\n`;
+    context += `admin: ${categoryCounts.admin}\n`;
+    if (categoryCounts.needs_review > 0) {
+        context += `needs_review (pending classification): ${categoryCounts.needs_review}\n`;
     }
 
     return context;
 }
 
-async function generateReview(context, totalCaptures) {
+async function generateReview(context, totalCaptures, categoryCounts) {
     const prompt = `You are a personal productivity assistant conducting a weekly review. Analyze the following data and generate an insightful summary.
 
 ${context}
@@ -200,8 +260,8 @@ Create a weekly review with EXACTLY this format. Keep it under 250 words total.
 📅 **Week in Review**
 
 **📊 Quick Stats:**
-- Items captured: [number]
-- Breakdown: [x people, y projects, z ideas, w admin]
+- Items captured: ${totalCaptures}
+- Breakdown: ${categoryCounts.people} people, ${categoryCounts.projects} projects, ${categoryCounts.ideas} ideas, ${categoryCounts.admin} admin
 
 **🎯 What Moved Forward:**
 - [Project or area that made progress]
@@ -219,12 +279,14 @@ Create a weekly review with EXACTLY this format. Keep it under 250 words total.
 2. [Second priority]
 3. [Third priority]
 
-**🔧 Items Needing Review:**
-[List any items still marked "Needs Review" or flag if none]
+**🔧 Items Needing Manual Classification:**
+${categoryCounts.needs_review > 0 ? `${categoryCounts.needs_review} items routed to clarification due to low AI confidence - review in Notifications/Needs-Review.md` : 'None - all items classified successfully'}
 
 ---
 
 RULES:
+- Use the EXACT numbers provided for stats breakdown - do not recalculate
+- "Needs Review" means items with low AI confidence waiting for manual categorization in Needs-Review.md
 - Be analytical, not motivational
 - Call out projects that haven't had action in over a week
 - Note if capture volume was unusually high or low

@@ -1,0 +1,28 @@
+---
+type: inbox-log
+created: 2025-10-01 09:30:15
+entry_hash: h9z8y7x
+original_text: |
+  Met with the marketing team to discuss Q4 campaign strategy. They want to focus on social media expansion.
+filed_to: "projects"
+destination_name: "Q4 Marketing Campaign"
+destination_link: "[[Projects/Q4 Marketing Campaign.md]]"
+confidence: 0.88
+status: filed
+source_note: "[[2025-10-01]]"
+---
+
+
+# Inbox Log - 2025-10-01 09:30
+
+**Original Text:**
+> Met with the marketing team to discuss Q4 campaign strategy. They want to focus on social media expansion.
+
+**Filed To:** projects
+**Destination:** [[Projects/Q4 Marketing Campaign.md]]
+**Confidence:** 0.88
+**Status:** filed
+**Hash:** `h9z8y7x`
+
+---
+*Processed on 2025-10-01 09:30:15*

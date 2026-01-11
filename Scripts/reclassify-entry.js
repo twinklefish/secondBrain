@@ -91,6 +91,39 @@ async function callGroqAPI(prompt, options = {}) {
     throw lastError || new Error("Groq API call failed after retries");
 }
 
+function validateClassification(jsonString) {
+    try {
+        const obj = JSON.parse(jsonString);
+
+        if (!obj.destination) {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error("Missing 'destination' field");
+        }
+        if (typeof obj.confidence !== 'number') {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error("Missing or invalid 'confidence' field");
+        }
+        if (!obj.data) {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error("Missing 'data' field");
+        }
+
+        const validDestinations = ["people", "projects", "ideas", "admin", "needs_review"];
+        if (!validDestinations.includes(obj.destination)) {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error(`Invalid destination: ${obj.destination}`);
+        }
+
+        return obj;
+    } catch (e) {
+        if (e instanceof SyntaxError) {
+            console.error("JSON parse failed - raw response:", jsonString);
+            throw new Error(`Classification validation failed: Invalid JSON - ${e.message}`);
+        }
+        throw new Error(`Classification validation failed: ${e.message}`);
+    }
+}
+
 // ============================================
 // MAIN RECLASSIFY FUNCTION
 // ============================================
@@ -179,14 +212,75 @@ async function reclassifyPendingEntries(tp) {
 }
 
 async function findInboxLogByHash(hash) {
-    const dv = app.plugins.plugins.dataview.api;
-    if (!dv) return null;
+    // Instead of using Dataview, directly search through log files
+    const logFolder = app.vault.getAbstractFileByPath(INBOX_LOG_FOLDER);
+    if (!logFolder || !logFolder.children) return null;
 
-    const logs = dv.pages(`"${INBOX_LOG_FOLDER}"`)
-        .where(p => p.entry_hash === hash);
+    for (const file of logFolder.children) {
+        if (file.extension !== 'md') continue;
 
-    const result = logs.array();
-    return result.length > 0 ? result[0] : null;
+        try {
+            const content = await app.vault.read(file);
+            const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+            if (!fmMatch) continue;
+
+            const frontmatter = fmMatch[1];
+            const hashMatch = frontmatter.match(/entry_hash:\s*["']?([^"\n]+)["']?/);
+
+            if (hashMatch && hashMatch[1] === hash) {
+                // Parse the frontmatter to get the data
+                const lines = frontmatter.split('\n');
+                const data = {};
+                let currentKey = null;
+                let multilineValue = [];
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+
+                    // Check if this is a new key:value pair (has colon and doesn't start with whitespace)
+                    const colonIdx = line.indexOf(':');
+                    const isNewField = colonIdx > -1 && !line.match(/^\s/) && line.slice(0, colonIdx).trim();
+
+                    if (isNewField) {
+                        // Save previous multiline field if exists
+                        if (currentKey && multilineValue.length > 0) {
+                            data[currentKey] = multilineValue.join('\n');
+                            multilineValue = [];
+                        }
+
+                        const key = line.slice(0, colonIdx).trim();
+                        let value = line.slice(colonIdx + 1).trim();
+
+                        if (value === '|') {
+                            // Start of multiline field
+                            currentKey = key;
+                            multilineValue = [];
+                        } else {
+                            // Single-line field
+                            value = value.replace(/^["']|["']$/g, '');
+                            data[key] = value;
+                            currentKey = null;
+                        }
+                    } else if (currentKey) {
+                        // Continuation of multiline field (including blank lines)
+                        multilineValue.push(line.replace(/^\s{2}/, '')); // Remove 2-space indent
+                    }
+                }
+
+                // Save last multiline field
+                if (currentKey && multilineValue.length > 0) {
+                    data[currentKey] = multilineValue.join('\n');
+                }
+
+                return data;
+            }
+        } catch (e) {
+            console.error(`Error reading log file ${file.path}:`, e);
+            continue;
+        }
+    }
+
+    return null;
 }
 
 async function classifyWithForcedCategory(text, forcedCategory) {
@@ -227,9 +321,211 @@ RULES:
 }
 
 async function createOrUpdateRecordManual(tp, classification, originalText, entryHash, sourceNote) {
-    // Copy logic from process-daily-note.js createOrUpdateRecord()
-    // (Implementation same as main script)
-    // For brevity, assume same logic as above
+    const dest = classification.destination;
+    const folder = getFolderForCategory(dest);
+    const fileName = sanitizeFileName(classification.data.name);
+    const filePath = `${folder}/${fileName}.md`;
+
+    const existingFile = app.vault.getAbstractFileByPath(filePath);
+
+    if (!existingFile) {
+        // Create new file
+        const template = await loadTemplate(getTemplateForCategory(dest));
+        const content = replacePlaceholders(template, classification.data, sourceNote, classification.confidence, entryHash);
+        await app.vault.create(filePath, content);
+
+        await createInboxLog(tp, originalText, entryHash, dest, fileName, filePath, classification.confidence, "filed", sourceNote);
+
+        return { destination: dest, name: fileName, status: "filed" };
+    } else {
+        // Merge into existing file
+        await mergeIntoExisting(existingFile, classification, originalText, sourceNote);
+
+        await createInboxLog(tp, originalText, entryHash, dest, fileName, filePath, classification.confidence, "merged", sourceNote);
+
+        return { destination: dest, name: fileName, status: "merged" };
+    }
+}
+
+// Helper functions needed by createOrUpdateRecordManual
+
+const PEOPLE_FOLDER = "People";
+const PROJECTS_FOLDER = "Projects";
+const IDEAS_FOLDER = "Ideas";
+const ADMIN_FOLDER = "Admin";
+
+function getFolderForCategory(dest) {
+    const mapping = {
+        people: PEOPLE_FOLDER,
+        projects: PROJECTS_FOLDER,
+        ideas: IDEAS_FOLDER,
+        admin: ADMIN_FOLDER
+    };
+    return mapping[dest] || NOTIFICATIONS_FOLDER;
+}
+
+function getTemplateForCategory(dest) {
+    const mapping = {
+        people: "Person-Template",
+        projects: "Project-Template",
+        ideas: "Idea-Template",
+        admin: "Admin-Template"
+    };
+    return mapping[dest] || "Notification-Template";
+}
+
+function sanitizeFileName(name) {
+    return (name || "Untitled").replace(/[\\/:*?"<>|]/g, '-').substring(0, 100);
+}
+
+async function loadTemplate(templateName) {
+    const templateFile = app.vault.getAbstractFileByPath(`Templates/${templateName}.md`);
+    if (!templateFile) throw new Error(`Template not found: ${templateName}`);
+    return await app.vault.read(templateFile);
+}
+
+function replacePlaceholders(template, data, sourceNote, confidence, entryHash) {
+    let result = template;
+
+    // Common replacements
+    result = result.replace(/{{NAME}}/g, data.name || "Untitled");
+    result = result.replace(/{{SOURCE}}/g, sourceNote);
+    result = result.replace(/{{CONFIDENCE}}/g, confidence);
+    result = result.replace(/{{ENTRY_HASH}}/g, entryHash || "");
+    result = result.replace(/{{TAGS}}/g, (data.tags || []).join(", "));
+
+    // People-specific
+    result = result.replace(/{{CONTEXT}}/g, data.context || "");
+    result = result.replace(/{{FOLLOWUPS}}/g, data.follow_ups || "");
+
+    // Projects-specific
+    result = result.replace(/{{STATUS}}/g, data.status || "active");
+    result = result.replace(/{{NEXT_ACTION}}/g, data.next_action || "");
+    result = result.replace(/{{NOTES}}/g, data.notes || "");
+
+    // Ideas-specific
+    result = result.replace(/{{ONE_LINER}}/g, data.one_liner || "");
+
+    // Admin-specific
+    result = result.replace(/{{DUE_DATE}}/g, data.due_date || "null");
+
+    return result;
+}
+
+async function mergeIntoExisting(file, classification, originalText, sourceNote) {
+    const current = await app.vault.read(file);
+
+    // Parse frontmatter
+    const fmMatch = current.match(/^---\n([\s\S]*?)\n---/);
+    const fmObj = yamlToObject(fmMatch ? fmMatch[1] : "");
+
+    // Update key fields
+    const updates = {
+        last_touched: moment().format("YYYY-MM-DD"),
+        confidence: Math.max(fmObj.confidence || 0, classification.confidence)
+    };
+
+    // Category-specific updates
+    if (classification.destination === "people") {
+        if (classification.data.follow_ups) {
+            updates.follow_ups = mergeMultilineField(fmObj.follow_ups, classification.data.follow_ups);
+        }
+        if (classification.data.context) {
+            updates.context = mergeMultilineField(fmObj.context, classification.data.context);
+        }
+    } else if (classification.destination === "projects") {
+        if (classification.data.status) updates.status = classification.data.status;
+        if (classification.data.next_action) updates.next_action = classification.data.next_action;
+        if (classification.data.notes) {
+            updates.notes = mergeMultilineField(fmObj.notes, classification.data.notes);
+        }
+    } else if (classification.destination === "admin") {
+        if (classification.data.due_date) updates.due_date = classification.data.due_date;
+        if (classification.data.status) updates.status = classification.data.status;
+    }
+
+    Object.assign(fmObj, updates);
+
+    // Rebuild frontmatter
+    const newFrontmatter = objectToYaml(fmObj);
+
+    // Append history entry
+    const bodyWithoutFm = current.replace(/^---\n[\s\S]*?\n---\n/, "");
+    const historyEntry = `\n---\n**${moment().format("YYYY-MM-DD HH:mm")}** - Merged from [[${sourceNote}]]:\n> ${originalText}\n`;
+
+    const merged = `---\n${newFrontmatter}---\n${bodyWithoutFm}${historyEntry}`;
+
+    await app.vault.modify(file, merged);
+}
+
+function mergeMultilineField(existing, incoming) {
+    if (!existing) return incoming;
+    if (!incoming) return existing;
+    // Avoid duplicates
+    if (existing.includes(incoming)) return existing;
+    return `${existing}\n- ${incoming}`;
+}
+
+function yamlToObject(str) {
+    const obj = {};
+    str.split('\n').forEach(line => {
+        const idx = line.indexOf(':');
+        if (idx === -1) return;
+        const k = line.slice(0, idx).trim();
+        let v = line.slice(idx + 1).trim();
+
+        if (!k) return;
+
+        // Handle multi-line fields (indicated by |)
+        if (v === '|') {
+            obj[k] = ""; // Will be filled by subsequent lines
+            return;
+        }
+
+        // Parse value
+        if (v === "null") v = null;
+        else if (v === "true") v = true;
+        else if (v === "false") v = false;
+        else if (!isNaN(Number(v)) && v !== "") v = Number(v);
+        else if (v.startsWith('[') && v.endsWith(']')) {
+            v = v.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean);
+        }
+
+        obj[k] = v;
+    });
+    return obj;
+}
+
+function objectToYaml(obj) {
+    return Object.entries(obj)
+        .map(([k, v]) => {
+            if (Array.isArray(v)) return `${k}: [${v.join(', ')}]`;
+            if (v === null) return `${k}: null`;
+            if (typeof v === 'string' && v.includes('\n')) {
+                return `${k}: |\n  ${v.split('\n').join('\n  ')}`;
+            }
+            return `${k}: ${v}`;
+        })
+        .join('\n');
+}
+
+async function createInboxLog(tp, originalText, entryHash, filedTo, destName, destLink, confidence, status, sourceNote) {
+    const timestamp = tp.date.now("YYYY-MM-DD-HHmmss");
+    const logPath = `${INBOX_LOG_FOLDER}/Log-${timestamp}.md`;
+
+    const templateContent = await loadTemplate("Inbox-Log-Template");
+    let content = templateContent;
+
+    content = content.replace(/{{ENTRY_HASH}}/g, entryHash);
+    content = content.replace(/{{ORIGINAL_TEXT}}/g, originalText);
+    content = content.replace(/{{FILED_TO}}/g, filedTo);
+    content = content.replace(/{{DEST_NAME}}/g, destName);
+    content = content.replace(/{{DEST_LINK}}/g, destLink);
+    content = content.replace(/{{CONFIDENCE}}/g, confidence);
+    content = content.replace(/{{STATUS}}/g, status);
+    content = content.replace(/{{SOURCE}}/g, sourceNote);
+
+    await app.vault.create(logPath, content);
 }
 
 async function createReclassificationSummary(tp, results) {

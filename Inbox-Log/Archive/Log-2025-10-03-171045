@@ -1,0 +1,27 @@
+---
+type: inbox-log
+created: 2025-10-03 17:10:45
+entry_hash: h3t2s1r
+original_text: |
+  Interesting idea from the conference: what if we automated the weekly reporting process using AI? Could save hours.
+filed_to: "ideas"
+destination_name: "Automate weekly reporting with AI"
+destination_link: "[[Ideas/Automate weekly reporting with AI.md]]"
+confidence: 0.85
+status: filed
+source_note: "[[2025-10-03]]"
+---
+
+# Inbox Log - 2025-10-03 17:10
+
+**Original Text:**
+> Interesting idea from the conference: what if we automated the weekly reporting process using AI? Could save hours.
+
+**Filed To:** ideas
+**Destination:** [[Ideas/Automate weekly reporting with AI.md]]
+**Confidence:** 0.85
+**Status:** filed
+**Hash:** `h3t2s1r`
+
+---
+*Processed on 2025-10-03 17:10:45*

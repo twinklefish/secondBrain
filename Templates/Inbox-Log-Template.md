@@ -1,7 +1,7 @@
 ---
 type: inbox-log
 created: <% tp.date.now("YYYY-MM-DD HH:mm:ss") %>
-entry_hash: "{{ENTRY_HASH}}"
+entry_hash: {{ENTRY_HASH}}
 original_text: |
   {{ORIGINAL_TEXT}}
 filed_to: "{{FILED_TO}}"

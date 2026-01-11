@@ -95,17 +95,31 @@ function validateClassification(jsonString) {
     try {
         const obj = JSON.parse(jsonString);
 
-        if (!obj.destination) throw new Error("Missing 'destination' field");
-        if (typeof obj.confidence !== 'number') throw new Error("Missing or invalid 'confidence' field");
-        if (!obj.data) throw new Error("Missing 'data' field");
+        if (!obj.destination) {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error("Missing 'destination' field");
+        }
+        if (typeof obj.confidence !== 'number') {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error("Missing or invalid 'confidence' field");
+        }
+        if (!obj.data) {
+            console.error("Validation failed - API response:", jsonString);
+            throw new Error("Missing 'data' field");
+        }
 
         const validDestinations = ["people", "projects", "ideas", "admin", "needs_review"];
         if (!validDestinations.includes(obj.destination)) {
+            console.error("Validation failed - API response:", jsonString);
             throw new Error(`Invalid destination: ${obj.destination}`);
         }
 
         return obj;
     } catch (e) {
+        if (e instanceof SyntaxError) {
+            console.error("JSON parse failed - raw response:", jsonString);
+            throw new Error(`Classification validation failed: Invalid JSON - ${e.message}`);
+        }
         throw new Error(`Classification validation failed: ${e.message}`);
     }
 }
@@ -133,7 +147,44 @@ async function processDailyNote(tp) {
         return;
     }
 
+    console.log("Process Daily Note - Active file path:", activeFile.path);
+    console.log("Checking if starts with 'Inbox/':", activeFile.path.startsWith("Inbox/"));
+
+    // Check if this is an Inbox file - if so, run Process Inbox first
+    if (activeFile.path.startsWith("Inbox/")) {
+        console.log("Inbox file detected - running Process Inbox first");
+        new Notice("Running Process Inbox first...");
+        try {
+            const processInbox = tp.user["process-inbox"];
+            if (processInbox) {
+                await processInbox(tp);
+                // The file should now be in 0-Daily, so re-find it
+                const dailyFileName = activeFile.basename;
+                const dailyFile = app.vault.getAbstractFileByPath(`0-Daily/${dailyFileName}.md`);
+                if (!dailyFile) {
+                    new Notice("❌ Failed to find processed daily note");
+                    return;
+                }
+                // Continue processing the new daily note
+                // Re-read the file content
+                const dailyContent = await app.vault.read(dailyFile);
+                return await processDailyNoteContent(tp, dailyFile, dailyContent);
+            } else {
+                new Notice("❌ Process Inbox function not found. Please check Templater settings.");
+                return;
+            }
+        } catch (error) {
+            console.error("Error running Process Inbox:", error);
+            new Notice(`❌ Process Inbox failed: ${error.message}`);
+            return;
+        }
+    }
+
     const content = await app.vault.read(activeFile);
+    return await processDailyNoteContent(tp, activeFile, content);
+}
+
+async function processDailyNoteContent(tp, activeFile, content) {
     const frontmatter = tp.frontmatter || {};
     const lastOffset = frontmatter.last_processed_offset || 0;
 
@@ -179,7 +230,7 @@ async function processDailyNote(tp) {
                 classification,
                 entry.text,
                 entry.hash,
-                tp.file.title
+                activeFile.basename
             );
             results.push(result);
         } catch (e) {
@@ -220,19 +271,63 @@ function extractEntries(content, lastProcessedOffset) {
     const sliceStart = Math.max(bodyStart, lastProcessedOffset);
     const body = content.substring(sliceStart);
 
+    // Extract only Journal and Scratch Pad sections (skip Tasks)
+    const processableSections = extractProcessableSections(body);
+
     // Split by delimiter (more robust regex)
     const DELIMITER = /\n---\s*\n/;
-    return body.split(DELIMITER)
+    return processableSections.split(DELIMITER)
         .map(t => t.trim())
         .filter(t => t.length > 10)
         .filter(t => !t.startsWith('<!--'))
         .filter(t => !t.includes('New entries below this line'))
+        .filter(t => !t.includes('Quick Capture'))
         .filter(t => !t.match(/^##?\s+/)) // Filter out headings
         .map((text, idx) => ({
             text,
             hash: hashEntry(text),
             originalIndex: idx
         }));
+}
+
+function extractProcessableSections(content) {
+    // Extract content from ## Journal and ## Scratch Pad sections only
+    // Skip ## Tasks section
+    const sections = [];
+    const lines = content.split('\n');
+    let currentSection = null;
+    let sectionContent = [];
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+
+        // Check if this is a section header
+        if (line.match(/^##\s+/)) {
+            // Save previous section if it was processable
+            if (currentSection === 'journal' || currentSection === 'scratch_pad') {
+                sections.push(sectionContent.join('\n'));
+            }
+
+            // Start new section
+            sectionContent = [];
+            if (line.match(/^##\s+Journal/i)) {
+                currentSection = 'journal';
+            } else if (line.match(/^##\s+Scratch\s*Pad/i)) {
+                currentSection = 'scratch_pad';
+            } else {
+                currentSection = 'skip';
+            }
+        } else if (currentSection !== 'skip') {
+            sectionContent.push(line);
+        }
+    }
+
+    // Save last section if processable
+    if (currentSection === 'journal' || currentSection === 'scratch_pad') {
+        sections.push(sectionContent.join('\n'));
+    }
+
+    return sections.join('\n');
 }
 
 async function getProcessedHashes() {
@@ -288,9 +383,23 @@ async function classifyWithOverride(override) {
 // ============================================
 
 async function classifyEntry(text) {
-    const prompt = buildClassificationPrompt(text);
-    const response = await callGroqAPI(prompt);
-    return validateClassification(response);
+    try {
+        const prompt = buildClassificationPrompt(text);
+        const response = await callGroqAPI(prompt);
+        return validateClassification(response);
+    } catch (error) {
+        console.error("Classification failed, routing to needs_review:", error);
+        // If classification fails, route to needs_review with the error details
+        return {
+            destination: "needs_review",
+            confidence: 0.0,
+            data: {
+                original_text: text.substring(0, 200),
+                possible_categories: ["unknown"],
+                reason: `API or validation error: ${error.message}`
+            }
+        };
+    }
 }
 
 function buildClassificationPrompt(text) {
