@@ -264,6 +264,8 @@ created: ${tp.date.now("YYYY-MM-DD HH:mm:ss")}
 notification_type: "daily_digest"
 ---
 
+tags::
+
 ${digest}`;
 
     await app.vault.create(notifPath, content);

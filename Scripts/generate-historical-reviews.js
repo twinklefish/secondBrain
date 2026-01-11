@@ -373,6 +373,8 @@ notification_type: "weekly_review_historical"
 week_start: ${weekStart}
 ---
 
+tags::
+
 ${review}`;
 
     await app.vault.create(notifPath, content);

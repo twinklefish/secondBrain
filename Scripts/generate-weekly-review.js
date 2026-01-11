@@ -312,6 +312,8 @@ created: ${tp.date.now("YYYY-MM-DD HH:mm:ss")}
 notification_type: "weekly_review"
 ---
 
+tags::
+
 ${review}`;
 
     await app.vault.create(notifPath, content);

@@ -5,12 +5,13 @@ status: todo
 due_date: {{DUE_DATE}}
 created: <% tp.date.now("YYYY-MM-DD") %>
 last_touched: <% tp.date.now("YYYY-MM-DD") %>
-tags: [{{TAGS}}]
 source_note: "[[{{SOURCE}}]]"
 confidence: {{CONFIDENCE}}
 notes: |
   {{NOTES}}
 ---
+
+tags:: {{TAGS}}
 
 # {{NAME}}
 

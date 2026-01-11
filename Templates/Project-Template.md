@@ -4,7 +4,6 @@ name: "{{NAME}}"
 status: {{STATUS}}
 created: <% tp.date.now("YYYY-MM-DD") %>
 last_touched: <% tp.date.now("YYYY-MM-DD") %>
-tags: [{{TAGS}}]
 source_note: "[[{{SOURCE}}]]"
 confidence: {{CONFIDENCE}}
 next_action: |
@@ -12,6 +11,8 @@ next_action: |
 notes: |
   {{NOTES}}
 ---
+
+tags:: {{TAGS}}
 
 # {{NAME}}
 

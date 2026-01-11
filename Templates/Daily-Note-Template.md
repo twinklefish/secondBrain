@@ -4,6 +4,8 @@ last_processed: null
 last_processed_offset: 0
 ---
 
+tags::
+
 # <% tp.date.now("dddd, MMMM DD, YYYY") %>
 
 ## Quick Capture

@@ -3,7 +3,6 @@ type: idea
 name: "{{NAME}}"
 created: <% tp.date.now("YYYY-MM-DD") %>
 last_touched: <% tp.date.now("YYYY-MM-DD") %>
-tags: [{{TAGS}}]
 source_note: "[[{{SOURCE}}]]"
 confidence: {{CONFIDENCE}}
 one_liner: |
@@ -11,6 +10,8 @@ one_liner: |
 notes: |
   {{NOTES}}
 ---
+
+tags:: {{TAGS}}
 
 # {{NAME}}
 
