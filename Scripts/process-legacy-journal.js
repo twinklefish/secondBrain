@@ -1,4 +1,20 @@
 // ============================================
+// PROCESS LEGACY JOURNAL (SINGLE FILE)
+// ============================================
+// OPTIONAL TOOL: Adds --- delimiters to a single legacy journal file
+//
+// USE CASE: Manual delimiter insertion for specific files
+// NOTE: The batch processor does NOT automatically add delimiters
+//
+// To use:
+// 1. Open the legacy journal file you want to process
+// 2. Run command palette → "Templater: Run - Process Legacy Journal"
+// 3. AI will analyze and insert --- delimiters between major topics
+//
+// PHILOSOPHY: "Chapters of a book" - only major topic shifts get delimiters
+// ============================================
+
+// ============================================
 // GROQ API HELPER (INLINED)
 // ============================================
 

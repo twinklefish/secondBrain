@@ -7,11 +7,13 @@ This guide explains how to import and process 2 years of legacy journal entries 
 ## Overview
 
 The batch processing workflow automatically:
-1. ✅ Adds `---` delimiters between distinct ideas (AI-powered)
-2. ✅ Structures entries into Daily Note format
+1. ✅ Moves legacy journals from `Legacy-Import/` to processing pipeline
+2. ✅ Structures entries into Daily Note format (respects existing `---` delimiters)
 3. ✅ Classifies entries to People/Projects/Ideas/Admin categories
 4. ✅ Creates audit trail in Inbox-Log
 5. ✅ Generates weekly reviews for all historical weeks
+
+**Note on Delimiters:** Files are processed as-is without adding delimiters automatically. Files with existing `---` delimiters will have each section classified separately. Files without delimiters will be processed as single entries.
 
 ---
 
@@ -54,25 +56,23 @@ Legacy-Import/
 
 **What happens:**
 - Script scans all files in `Legacy-Import/`
-- Skips task files (files with "task" in name)
-- Skips files that already have `---` delimiters
+- Skips files already processed (checks `Inbox-Archive/` and `0-Daily/`)
 - For each file:
-  - AI adds `---` delimiters between major topics
   - Moves file to `Inbox/`
-  - Processes to `0-Daily/` (structured format)
-  - Classifies entries to category folders
+  - Processes to `0-Daily/` (structured format, respects existing delimiters)
+  - Classifies entries to category folders (AI-powered)
 - Shows progress: `[243/500] Processing 2024-03-15...`
 - Handles errors gracefully (skips failed files, logs errors)
 
 **Estimated time:**
-- ~3 seconds per file
-- 500 files = ~25 minutes
-- 2 years ≈ 730 files = ~40 minutes
+- ~2 seconds per file (no delimiter processing)
+- 500 files = ~15-20 minutes
+- 2 years ≈ 730 files = ~25 minutes
 
 **API cost estimate:**
-- ~500 tokens per file (delimiter + structuring + classification)
-- 730 files × 500 tokens = 365,000 tokens
-- Cost: ~$0.55 for 2 years of journals
+- ~250 tokens per file (structuring + classification only, no delimiter processing)
+- 730 files × 250 tokens = 182,500 tokens
+- Cost: ~$0.27 for 2 years of journals
 
 ### Step 3: Review Batch Summary
 
@@ -120,11 +120,11 @@ After batch processing completes:
 
 | Task | Time | API Cost |
 |------|------|----------|
-| Batch process journals | ~40 min | ~$0.55 |
+| Batch process journals | ~25 min | ~$0.27 |
 | Generate weekly reviews | ~4 min | ~$0.23 |
-| **Total** | **~44 min** | **~$0.78** |
+| **Total** | **~29 min** | **~$0.50** |
 
-*Note: Costs based on Groq pricing for moonshotai/kimi-k2-instruct-0905 model*
+*Note: Costs based on Groq pricing for moonshotai/kimi-k2-instruct-0905 model. No delimiter processing included (files processed as-is).*
 
 ---
 
@@ -204,23 +204,46 @@ Your-Vault/
 
 ---
 
+## Optional: Adding Delimiters to Individual Files
+
+The batch processor does NOT automatically add `---` delimiters. However, you can manually add them to specific files if needed:
+
+**When to add delimiters:**
+- Legacy journal has multiple distinct topics in one file
+- You want each topic classified separately
+- File structure is unclear without delimiters
+
+**How to add delimiters:**
+1. Open the legacy journal file in Obsidian
+2. Run command palette → "Templater: Run - Process Legacy Journal"
+3. AI will analyze and insert `---` between major topic shifts
+4. Review the result before running batch processor
+
+**Philosophy:** Delimiters should mark "chapters of a book" not "paragraphs of a chapter"
+- Related thoughts = same section (no delimiter)
+- Completely unrelated topics = different sections (add delimiter)
+
+---
+
 ## Tips for Success
 
 1. **Start Small:** Test with 10-20 files first before processing all 2 years
 2. **Monitor Console:** Open Developer Console (Ctrl+Shift+I) to see detailed logs
 3. **Backup First:** Keep originals somewhere safe outside Obsidian
 4. **Check Categorization:** Review a few random entries to ensure AI is classifying correctly
-5. **Adjust Prompts:** If misclassifications are common, tweak prompts in scripts
+5. **Delimiters Optional:** Most legacy journals work fine without adding delimiters
+6. **Adjust Prompts:** If misclassifications are common, tweak prompts in scripts
 
 ---
 
 ## Script Files Reference
 
-- **`Scripts/process-legacy-batch.js`** - Master batch processor
+- **`Scripts/process-legacy-batch.js`** - Master batch processor (no delimiter processing)
 - **`Scripts/generate-historical-reviews.js`** - Historical weekly review generator
-- **`Scripts/process-legacy-journal.js`** - Single-file delimiter adder
+- **`Scripts/process-legacy-journal.js`** - OPTIONAL: Single-file delimiter adder (manual use only)
 - **`Templates/Runners/Run - Batch Process Legacy Journals.md`** - Batch runner
 - **`Templates/Runners/Run - Generate Historical Reviews.md`** - Review runner
+- **`Templates/Runners/Run - Process Legacy Journal.md`** - OPTIONAL: Single-file delimiter runner
 
 ---
 
@@ -234,4 +257,5 @@ If you encounter issues:
 
 ---
 
-*Last updated: 2026-01-10*
+*Last updated: 2026-01-11*
+*Simplified workflow: No automatic delimiter processing - files processed as-is*
